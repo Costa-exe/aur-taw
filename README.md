@@ -103,7 +103,7 @@ aur-taw autocheck run
 aur-taw autocheck disable
 ```
 
-`list` displays cached remote versions and current installed versions without network requests. HTTP errors, invalid JSON, or unavailable packages preserve previously known versions and return an error. Manual checks and autocheck share one lock covering the request and merge, so a delayed background response cannot overwrite a newer manual result. Non-AUR repository URLs have no AUR version source and are skipped by `check`.
+`list` displays cached remote versions and current installed versions without network requests. During `check`, HTTP errors, invalid JSON, or unavailable packages preserve previously known versions and return an error. Manual checks and autocheck share one lock covering the request and merge, so a delayed background response cannot overwrite a newer manual result. Non-AUR repository URLs have no AUR version source and are skipped by `check`.
 
 If installed and available versions differ but `vercmp` considers the installed version newer or equivalent, `check` and `install --upgrade` display `VERSION MISMATCH`, both versions, and the comparison result. This can happen with different version schemes or stale VCS metadata: for example, an installed `.r1154.ef2c16e-1` sorts above AUR's `0.1.0.r0.0-9`. The warning explains why no automatic update is selected; it does not establish that the installed upstream code is current. `check --quiet` suppresses this output; automatic checks retain it in their log. `list` only shows the version table, without mismatch warnings.
 
@@ -173,13 +173,16 @@ Registry writers use a stable `flock` lock and validate the entire replacement b
 
 ## Development and release
 
+Check Bash syntax from the source directory:
+
 ```bash
-make test
-make test-docker
-AUR_TAW_REQUIRE_SANDBOX_TEST=1 bash tests/sandbox.bash "$PWD"
+for script in aur-taw aur-taw-completion.bash lib/*.bash; do
+    bash -n "$script" || break
+done
+git diff --check
 ```
 
-Tests use isolated temporary configuration, fake AUR/pacman responses, real local package archives and Git fixtures. They cover migration, concurrent checks, RPC failures, split packages, import/discovery, dev checks, dependency providers/cycles, security approval and archive/transaction safeguards. No test installs packages on the host. `make test-docker` additionally verifies strict version dependencies with real pacman transactions inside the disposable container. The sandbox suite exercises real makepkg when bubblewrap and namespaces are available; otherwise it reports the unavailable integration explicitly and verifies refusal to run an unprotected build.
+The Makefile also defines `make test` and `make test-docker` (using the `aur-dev` image by default). Both require `tests/run.bash` and its regression fixtures. **The `tests/` directory is absent from this source snapshot**, so these targets cannot currently run. Restore the regression suite before using them to validate a release; syntax checks alone do not verify behavior.
 
 See [Publishing an update to AUR](docs/RELEASING.md) for the source release, PKGBUILD update, checksums and `.SRCINFO` workflow.
 
