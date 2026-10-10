@@ -171,19 +171,6 @@ Origins are `added`, `imported`, `installed`, `bootstrap`, or `tracked` for lega
 
 Registry writers use a stable `flock` lock and validate the entire replacement before publishing. Temporary files live in the destination directory, are private to the user, are synced before an atomic rename, and the filesystem is synced afterwards. Failed writes leave the previous registry intact. Version checks merge only matching source/package identities under the lock, preserving concurrent additions, edits and removals. Never edit the registry manually while aur-taw is running.
 
-## Development and release
-
-Check Bash syntax from the source directory:
-
-```bash
-for script in aur-taw aur-taw-completion.bash lib/*.bash; do
-    bash -n "$script" || break
-done
-git diff --check
-```
-
-The Makefile also defines `make test` and `make test-docker` (using the `aur-dev` image by default). Both require `tests/run.bash` and its regression fixtures. **The `tests/` directory is absent from this source snapshot**, so these targets cannot currently run. Restore the regression suite before using them to validate a release; syntax checks alone do not verify behavior.
-
 ## License
 
 [MIT](LICENSE).
