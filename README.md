@@ -1,227 +1,191 @@
 # aur-taw (The Arch Way)
 
-A minimalist, opt-in, and RAM-safe AUR (Arch User Repository) helper written entirely in pure Bash. 
+A small, opt-in AUR helper written in Bash. Track selected packages, import existing installations, review recipe changes, and build on disk in `~/.cache/aur-taw`.
 
-Unlike traditional AUR helpers that take over your entire system and blindly scan for foreign packages, `aur-taw` is designed for purists. It uses a local flat-file database to track **only the packages you explicitly tell it to track**, giving you absolute control over your system.
+## Installation
 
-## Table of Contents
-* [Key Features & Security Measures](#key-features--security-measures)
-* [Dependencies](#dependencies)
-* [Installation (AUR Method)](#installation-aur-method)
-  * [The Auto-Bootstrap](#the-auto-bootstrap)
-  * [Enable Autocompletion](#enable-autocompletion)
-* [Sudo Password Mitigation](#sudo-password-mitigation)
-* [Usage Guide & Commands](#usage-guide--commands)
-  * [Search](#search)
-  * [Add / Update](#add--update)
-  * [Import (Already Installed)](#import-already-installed)
-  * [List](#list)
-  * [Install & Upgrade](#install--upgrade)
-  * [Check Updates](#check-updates)
-  * [View PKGBUILD](#view-pkgbuild)
-  * [Log (Git History)](#log-git-history)
-  * [Remove (From Memory)](#remove-from-memory)
-  * [Uninstall (From System)](#uninstall-from-system)
-* [License](#license)
+On Arch Linux:
 
+```bash
+sudo pacman -S --needed base-devel git curl jq less util-linux coreutils bubblewrap libarchive
+git clone https://aur.archlinux.org/aur-taw.git
+cd aur-taw
+makepkg -si
+```
 
-## Key Features & Security Measures
+To install this development checkout:
 
-* **KISS Compliant & Modular**: No Go, no Rust, no background magic. Just standard Bash cleanly divided into modular libraries (`lib/`) for maximum maintainability.
-* **Smart Build Engine**: Acts like `pacman -S --needed`. It intelligently skips compiling packages that are already installed and up-to-date, saving you immense amounts of time.
-* **RAM-Safe Builds**: Large AUR packages (like browsers or electron apps) can easily crash your system if compiled in `tmpfs` (RAM). `aur-taw` clones and builds everything on your physical disk (`~/.cache/aur-taw`), keeping your memory free and your system stable.
-* **Self-Updating**: `aur-taw` automatically tracks itself upon first run, allowing it to update itself through the standard update checking process.
-* **Offline-Ready List**: The `list` command instantly displays your installed versions alongside the latest known AUR versions directly from local memory, without hanging on slow network requests.
-* **Smart Import**: Easily migrate from other helpers by scanning your system for installed AUR packages and interactively choosing which ones to track.
-* **Strict Safeguards**:
-  * **Input Validation**: Rejects invalid URLs and spaces in aliases to protect database integrity.
-  * **Pacman Lock Check**: Verifies `/var/lib/pacman/db.lck` before starting any operation.
-  * **Removal Blocker**: Prevents you from untracking an alias using `remove` if the software is still physically installed on your system. It also strictly protects the `aur-taw` alias from accidental removal.
-  * **VCS/Bin Alerts**: Warns you if you attempt to downgrade a non-standard package where specific commits might be ignored or missing.
-* **Time Machine (Downgrades)**: Easily install a specific version of a package by appending a git commit hash.
-* **Clean Workflow**: Automatically detects missing AUR dependencies, provides links to add them, and prompts you to remove build orphans once the installation is done.
-* **Bash Autocompletion**: Full `TAB` completion support for commands, tracking aliases, and mass-processing flags.
+```bash
+sudo make install
+```
 
-## Dependencies
+Isolated builds require bubblewrap with `--ro-overlay` support (version 0.13 or newer), enabled unprivileged user namespaces and overlayfs. aur-taw refuses to build if isolation is unavailable; it never falls back to an unprotected build. Install missing official build dependencies explicitly before retrying.
 
-Ensure you have the required base tools installed on your Arch system:
+The default version is `1.3.0-dev`. Development builds exclude aur-taw itself from AUR checks and upgrades. Other tracked packages are checked normally. `sudo make uninstall` removes a development installation. Use the same `PREFIX` for installation and removal if you override it.
 
-    sudo pacman -S --needed base-devel git curl jq less
+Bash completion is installed automatically; open a new shell or run:
 
-*(Note: `base-devel` provides `makepkg`, which is mandatory for building AUR packages. `less` is used to safely view `PKGBUILD` files).*
+```bash
+source /usr/share/bash-completion/completions/aur-taw
+```
 
-## Installation (AUR Method)
+## Commands
 
-`aur-taw` is designed to be installed the standard "Arch Way" using `makepkg`.
+### Add and edit
 
-1. Clone the repository from the AUR:
-    git clone https://aur.archlinux.org/aur-taw.git
+```bash
+aur-taw add music https://aur.archlinux.org/spotify.git
+aur-taw edit music --name player
+aur-taw edit player --url https://aur.archlinux.org/spotify-launcher.git
+```
 
-2. Navigate into the directory and build/install the package:
-    cd aur-taw
-    makepkg -si
+`add` obtains the latest available AUR version immediately. If metadata cannot be fetched, it explicitly saves `Unknown`; the installed version is never used as the remote version. Run `check` once connectivity returns. An existing alias must be changed with `edit`.
 
-3. You can now safely delete the cloned directory, as `aur-taw` is installed on your system.
+`edit` works on imported packages as well. Renaming preserves the exact package name, cached version, and origin. Changing the source or package identity resets the origin to `added`. The self-update entry cannot be redirected or renamed.
 
-### The Auto-Bootstrap
-The first time you run any `aur-taw` command (e.g., `aur-taw check`), the tool will initialize its configuration files in `~/.config/aur-taw/` and **automatically add itself to the tracking list**. From that moment on, `aur-taw` will check for its own updates and self-upgrade just like any other tracked package!
+For a split repository, specify the exact output package when necessary:
 
-### Enable Autocompletion
-The installation automatically places the completion script in the correct system directory. To make the `TAB` autocompletion work immediately without rebooting your terminal, simply close and reopen your terminal, or run:
+```bash
+aur-taw add my-component https://aur.archlinux.org/PACKAGEBASE.git --package PACKAGE
+aur-taw edit my-component --package OTHER-PACKAGE
+```
 
-    source /usr/share/bash-completion/completions/aur-taw
+The repository base and installed package name are separate identities. Multiple outputs of one repository can be tracked individually. Package variants such as `foo`, `foo-git`, and `foo-bin` are distinct; aur-taw never strips suffixes to guess whether a package is installed.
 
-## Sudo Password Mitigation
+### Discover and import
 
-By default, Linux security (`tty_tickets` and subshells) might prompt you for your `sudo` password multiple times during long package compilations. 
+```bash
+aur-taw discover
+aur-taw import
+aur-taw import --all
+aur-taw import spotify
+```
 
-If you prefer a seamless, uninterrupted installation experience, you can configure Sudo to allow `pacman` to run without a password prompt. **This is completely optional and also a security compromise.**
+`discover` queries installed foreign packages and verifies which are currently on AUR. It reports untracked packages, imported packages, packages installed through aur-taw, entries only added to the registry, and legacy entries whose origin is unknown. Local packages and packages removed from AUR are identified separately. An unavailable AUR service is reported as unverified, never as proof that a package is absent.
 
-1. Open the sudoers configuration safely:
+Import reports installed and available versions, the package base, per-package results, and summary counts. It uses AUR's `PackageBase` for split repository URLs, preserves existing aliases, and resolves alias collisions without overwriting another entry. It never builds a package or establishes a trusted security baseline.
 
-       sudo EDITOR=nano visudo -f /etc/sudoers.d/aur-taw
+Packages already imported or installed through aur-taw are excluded before querying AUR: they do not appear as import candidates or generate repeated package details. Scans also exclude entries already present in the legacy registry, whose original install/import provenance was not recorded; an explicit `import <package>` can still record that provenance. If everything is already registered, import reports that there are no new packages to import, without network requests. Entries only created with `add` remain eligible.
 
-2. Add the following line (replace `your_username` with your actual Linux user):
+Provenance records operations performed by this version of aur-taw. It cannot reconstruct which helper installed a legacy package, or detect later reinstalls performed by another tool.
 
-       your_username ALL=(ALL) NOPASSWD: /usr/bin/pacman
+### Install, upgrade, and downgrade
 
-3. Save and exit. Now `aur-taw` will compile and install packages completely unattended!
+```bash
+aur-taw install player
+aur-taw check
+aur-taw install player --upgrade
+aur-taw install --all
+aur-taw install --all --upgrade
+aur-taw log player
+aur-taw install player@a1b2c3d
+```
 
+If the requested package is already installed but has not been imported, aur-taw blocks the installation and offers to import it. That invocation never continues to install, even if import is accepted. This also applies to an untracked installed package passed by its actual name. Imported or previously installed packages require `--upgrade` or an explicit historical commit for a rebuild.
 
-## Usage Guide & Commands
+Upgrade decisions use the last cached AUR version; run `check` first. Ordinary checks compare published AUR versions, so a new upstream commit without an AUR version change is not detected for VCS packages. Historical recipes may still download current upstream code or reference binaries that are no longer available.
 
-All your tracked packages are securely saved in a local memory file: `~/.config/aur-taw/repos.txt`.
+Every build requires a security review. `--all` confirms the batch, then requires approval for each recipe. makepkg runs in an isolated environment; aur-taw checks the name and package base of every resulting archive against the approved `.SRCINFO`. The standard `pkgbase-debug` output is also allowed. An output registered under another repository is rejected, including imported packages. Archives are hashed and checked again before installation. Missing AUR build dependencies must be added/imported and selected explicitly; aur-taw does not recursively execute unreviewed recipes.
 
-### Search
-Search for a package by its exact name on the AUR.
+When upgrading multiple entries, including `install --all --upgrade`, aur-taw orders the selected repositories with dependencies first and displays that order before building. It uses the installed runtime dependency graph, including virtual providers and transitive relationships through other installed packages. Split outputs from the same repository are built once. Previously prepared packages are made available only inside the next build’s isolated environment. All prepared archives are then installed in **one pacman transaction**, allowing coordinated updates such as `app 1 → 2` together with its exact dependency `lib=1 → lib=2`. If any review/build fails or is blocked, the entire batch stops before host installation. A dependency cycle between repositories requiring upgrades also stops the batch before building. pacman still validates the final dependency set; this does not provide rollback after a machine failure or a failing installation hook.
 
-    aur-taw search <keyword>
-    # Example: aur-taw search spotify
+This order describes the currently installed runtime relationships. Newly introduced dependencies in an upcoming recipe, and build/check dependencies, are not inferred by this scheduler. Pacman and makepkg still enforce package requirements during the build/install process; the usual security review remains required.
 
-**Example Output:**
+### Versions and background checks
 
-    Searching for 'spotify' on AUR...
-    ------------------------------------------------------------------------
-    spotify 1.2.37.701-1 [Votes: 4500]
-       A proprietary music streaming service
-       https://aur.archlinux.org/spotify.git
+```bash
+aur-taw list
+aur-taw check
+aur-taw check --installed
+aur-taw autocheck enable
+aur-taw autocheck status
+aur-taw autocheck run
+aur-taw autocheck disable
+```
 
+`list` displays cached remote versions and current installed versions without network requests. During `check`, HTTP errors, invalid JSON, or unavailable packages preserve previously known versions and return an error. Manual checks and autocheck share one lock covering the request and merge, so a delayed background response cannot overwrite a newer manual result. Non-AUR repository URLs have no AUR version source and are skipped by `check`.
 
-### Add / Update
-Add a repository to your tracking list using a custom alias. If the alias already exists, it updates the URL.
-*Note: The alias must be a single word without spaces (e.g., `music-player`). The URL must be a valid `http://` or `https://` git link.*
+If installed and available versions differ but `vercmp` considers the installed version newer or equivalent, `check` and `install --upgrade` display `VERSION MISMATCH`, both versions, and the comparison result. This can happen with different version schemes or stale VCS metadata: for example, an installed `.r1154.ef2c16e-1` sorts above AUR's `0.1.0.r0.0-9`. The warning explains why no automatic update is selected; it does not establish that the installed upstream code is current. `check --quiet` suppresses this output; automatic checks retain it in their log. `list` only shows the version table, without mismatch warnings.
 
-    aur-taw add <alias> <git-url>
-    # Example: aur-taw add music-player https://aur.archlinux.org/spotify.git
+`autocheck enable` installs a **systemd user timer** that checks tracked, installed packages every six hours, with a randomized delay and a check after session startup. It runs while your user systemd manager is available. It only refreshes version metadata: no builds, installs, or automatic security approvals. Enable it explicitly after installing aur-taw; a timer created from a checkout depends on that checkout remaining at the same path.
 
-### Import (Already Installed)
-Scan your system for foreign packages and query the AUR to see which ones are valid. You will be prompted `[y/N]` for each package, allowing you to selectively add them to your tracking memory.
+Units are written beneath `${XDG_CONFIG_HOME:-~/.config}/systemd/user/`. The latest automatic result and log are under `${XDG_CACHE_HOME:-~/.cache}/aur-taw/`; `autocheck status` shows their locations. `disable` stops the timer and an in-progress check. Disable the timer before uninstalling aur-taw.
 
-    aur-taw import
+### Dependencies
 
-If you want to skip the prompts and instantly add all valid installed AUR packages to your tracking list, use the `--all` flag:
+```bash
+aur-taw deps
+aur-taw deps player
+aur-taw deps player --tree
+aur-taw deps --tree
+aur-taw deps --all
+aur-taw deps --all --tree
+```
 
-    aur-taw import --all
+`deps` reads actual runtime dependencies from pacman's local database, including versioned dependencies and virtual providers. The default view is limited to installed AUR packages tracked in aur-taw and their relationships. The compact table shows each dependency once alongside the AUR packages that require it. Use `discover` and `import` to include other installed AUR packages in this view.
 
-### List
-Show a beautifully formatted table of all tracked aliases, their real package names, installed versions, the latest known AUR versions, and repository links.
+Tables and trees show registered aliases, including the `REQUIRED BY` column; packages without an alias use their real name. Trees include only brief cycle/repeated-node markers where necessary. Missing packages, build/check declarations and optional dependencies are excluded. `--all` explicitly broadens the view to official installed packages; the flat `--all` listing shows aliases/names and versions of packages marked as dependencies by pacman. The snapshot refreshes on imports, installs, removals and `deps`; it does not change installation reasons or install/remove anything.
 
-    aur-taw list
+### Other commands
 
-**Example Output:**
+```bash
+aur-taw search spotify
+aur-taw view player
+aur-taw log player
+aur-taw remove player
+aur-taw uninstall player
+aur-taw --help
+aur-taw --version
+```
 
-    Saved repositories:
-      (Run 'aur-taw check' to refresh the LATEST AUR column)
+`remove` only forgets an uninstalled package. `uninstall` invokes `pacman -Rns` and can then remove its registry entry. Uninstalling aur-taw keeps your registry/cache and other AUR packages; remove the configuration manually if you no longer need it.
 
-    ALIAS         REAL NAME  INSTALLED VERSION  LATEST AUR    REPO LINK
-    -----         ---------  -----------------  ----------    ---------
-    aur-taw       aur-taw    1.2.0              1.2.0         https://aur.archlinux.org/aur-taw.git
-    music-player  spotify    1.2.37.701-1       1.2.40.100-1  https://aur.archlinux.org/spotify.git
-    my-bonsai     cbonsai    Not-installed      Unknown       https://aur.archlinux.org/cbonsai-git.git
+## Recipe security review
 
+Before executing any `makepkg` command, aur-taw reads Git objects as data:
 
-### Install & Upgrade
-Clone, compile, and install packages. `aur-taw` is smart: if you ask it to install a package that is already installed, it will automatically skip it to save time, unless you explicitly request an upgrade.
+- On the first build, it displays **all tracked files**, including `PKGBUILD`, `.SRCINFO`, patches and `.install` hooks.
+- Later builds show the diff against the last successfully installed, approved commit. Missing history causes a full review. Imports never count as approval.
+- Static checks flag download-and-execute patterns, encoded scripts, inline interpreters, network operations, persistence/credential access, and known campaign package names.
+- AUR maintainer changes and orphaned packages are highlighted when ownership metadata is available.
+- Symlinks, submodules, binary/control-byte payloads and excessively large recipes are blocked. Git hooks, external diff programs and text conversions are disabled in the review path. The actual checked-out file bytes must also match the reviewed Git objects.
+- The user must type `APPROVE` in an interactive terminal before each build. Batch mode cannot bypass this. A failed build or rejected review does not advance the baseline.
 
-    # Install a specific tracked package (Skips if already installed)
-    aur-taw install music-player
+Builds use bubblewrap with a private HOME, temporary directories, a cleared environment and selected system files. Host credentials, the registry, agent sockets and the host temporary directory are not exposed. System tools and staged dependency files are read-only; package code cannot use host sudo. Source download, signature verification and `prepare()` run with network access inside this environment (`makepkg --nobuild`); compilation, tests and packaging then run without network access (`--noextract --holdver`). Recipes that download extra files during compilation must fetch them in their source or preparation phase instead. Missing official dependencies must be installed explicitly. Only public signing keys matching fingerprints declared in the approved `.SRCINFO` are exported into the private build keyring; secret keys and the rest of the host keyring are never copied. A missing key stops the build and reports its fingerprint for explicit import. Source preparation shares the host network, including localhost/LAN: it is not a network firewall. Staged packages overlay the installed system tools; this is not a clean chroot, and files removed by a dependency update can remain visible in the build environment.
 
-    # Upgrade a specific package (Only builds if a newer version is available)
-    aur-taw install music-player --upgrade
+This is a **review aid, not a malware guarantee**. Legitimate recipes can trigger warnings, and malicious code can evade patterns. Downloaded sources, mutable upstream code, build tools, and dependency archives are outside the recipe diff. Read the changes and verify upstream sources before approval. The installed package and its installation hooks still become trusted system code: isolation protects the build phase, not execution after installation. Do not configure passwordless, unrestricted pacman access to make builds unattended.
 
-    # Mass process ALL tracked packages (Builds only missing ones)
-    aur-taw install --all
+The [Arch AUR guidance](https://wiki.archlinux.org/title/Arch_User_Repository) recommends inspecting build files. The [reported gnome-randr-rust takeover](https://lists.archlinux.org/archives/list/aur-general%40lists.archlinux.org/thread/L2JXQNYBGWOQQQXDEPEAICBHKFEFANUC/) illustrates why the review includes install hooks and ownership changes.
 
-    # Mass UPGRADE all tracked packages (The equivalent of a full AUR system update)
-    aur-taw install --all --upgrade
+## Registry integrity and migration
 
-    # Time Machine: Install a specific older version using a Git commit hash
-    aur-taw install music-player@a1b2c3d
+Configuration uses `${XDG_CONFIG_HOME:-~/.config}/aur-taw/`; cache uses `${XDG_CACHE_HOME:-~/.cache}/aur-taw/`.
 
-*(Note: Mass commands using `--all` will trigger a single safety prompt before proceeding completely unattended via `--noconfirm`).*
+`repos.txt` now has five whitespace-separated fields:
 
-**Note on Downgrades:** Installing via specific commit (`@hash`) works flawlessly for **standard packages**. However, for VCS packages (`-git`, `-svn`) `makepkg` will ignore the commit and pull the latest source code anyway. For binary packages (`-bin`), the build will fail if the author deleted the old binary from their server. The script will throw an alert if you attempt to downgrade a non-standard package.
+```text
+alias repository-url latest-aur-version exact-package-name origin
+```
 
-### Check Updates
-Perform a blazing-fast bulk API call to check for updates on the AUR. This command updates your local memory database silently, populating the `LATEST AUR` column for your `list` command.
+Origins are `added`, `imported`, `installed`, `bootstrap`, or `tracked` for legacy entries. Old two/three-column files migrate automatically, with a backup at `repos.pre-v2.bak`. Legacy version caches are reset to `Unknown` because older versions mixed installed and remote values; run `check` after migration. Incompatible old aliases are migrated to collision-free `legacy-...` names, with the mapping printed and the exact original registry backed up. Existing valid aliases are retained. Legacy source-to-package mappings are retained; use `edit --package` to correct old split-package guesses.
 
-    aur-taw check
+Registry writers use a stable `flock` lock and validate the entire replacement before publishing. Temporary files live in the destination directory, are private to the user, are synced before an atomic rename, and the filesystem is synced afterwards. Failed writes leave the previous registry intact. Version checks merge only matching source/package identities under the lock, preserving concurrent additions, edits and removals. Never edit the registry manually while aur-taw is running.
 
-**Example Output:**
+## Development and release
 
-    Checking for updates and refreshing memory...
-      [UPDATE] music-player: 1.2.37.701-1 -> 1.2.40.100-1
+Check Bash syntax from the source directory:
 
-    Check completed. Memory updated.
-    Run 'aur-taw list' to see current statuses,
-    or 'aur-taw install --all --upgrade' to apply available updates.
+```bash
+for script in aur-taw aur-taw-completion.bash lib/*.bash; do
+    bash -n "$script" || break
+done
+git diff --check
+```
 
+The Makefile also defines `make test` and `make test-docker` (using the `aur-dev` image by default). Both require `tests/run.bash` and its regression fixtures. **The `tests/` directory is absent from this source snapshot**, so these targets cannot currently run. Restore the regression suite before using them to validate a release; syntax checks alone do not verify behavior.
 
-### View PKGBUILD
-Download and inspect the `PKGBUILD` of a tracked package using `less` before deciding to install it.
-
-    aur-taw view music-player
-
-**Example Output:**
-
-    # Maintainer: John Doe <john@example.com>
-    pkgname=spotify
-    pkgver=1.2.37.701
-    pkgrel=1
-    pkgdesc="A proprietary music streaming service"
-    arch=('x86_64')
-    ...
-    (END)
-
-
-### Log (Git History)
-View the last 10 commits of a package, including their hashes, exact version numbers, and commit messages. Extremely useful for finding the right hash for a downgrade.
-
-    aur-taw log music-player
-
-**Example Output:**
-
-    COMMIT   | VERSION         | COMMIT MESSAGE
-    ------------------------------------------------------------------------
-    a1b2c3d  | 1.2.37.701-1    | Update to version 1.2.37.701
-    f9e8d7c  | 1.2.31.1205-2   | Fix missing dependency
-    b4a5d6e  | 1.2.31.1205-1   | Update to version 1.2.31.1205
-
-
-### Remove (From Memory)
-Remove an alias from your `repos.txt` tracking list. 
-*Note: This command will be blocked if the software is still installed on your system, preventing untracked "orphan" software. The `aur-taw` alias itself is strictly protected and cannot be removed.*
-
-    aur-taw remove music-player
-
-
-### Uninstall (From System)
-The proper way to remove software. It uninstalls the package and its unused dependencies from your Arch system via `pacman`. Upon success, it will conveniently ask if you also want to remove the alias from your tracking memory.
-
-    aur-taw uninstall music-player
-
-**Self-Destruct & Cleanup:** If you use this command to uninstall the helper itself (`aur-taw uninstall aur-taw`), you will be presented with a security warning. If you proceed, the script will completely purge itself, its configuration folder, and its cache from your system, leaving no trace behind while keeping your other AUR packages safely installed.
-
+See [Publishing an update to AUR](docs/RELEASING.md) for the source release, PKGBUILD update, checksums and `.SRCINFO` workflow.
 
 ## License
-This project is licensed under the **MIT License**. See the `LICENSE` file for details.
+
+[MIT](LICENSE).
