@@ -1,58 +1,76 @@
 #!/bin/bash
 
-VERSION="1.2.0"
+VERSION="1.3.0-dev"
 
-SCRIPT_PATH="$(readlink -f "$0")"
-SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+SCRIPT_PATH="$(readlink -f "$0")" || exit 1
+SCRIPT_DIR="${SCRIPT_PATH%/*}"
+SCRIPT_DIR="${SCRIPT_DIR:-/}"
 
 if [[ -f "$SCRIPT_DIR/lib/core.bash" ]]; then
     LIB_DIR="$SCRIPT_DIR/lib"
-elif [[ -f "$(dirname "$SCRIPT_DIR")/share/aur-taw/lib/core.bash" ]]; then
-    LIB_DIR="$(dirname "$SCRIPT_DIR")/share/aur-taw/lib"
+elif [[ -f "${SCRIPT_DIR%/*}/share/aur-taw/lib/core.bash" ]]; then
+    LIB_DIR="${SCRIPT_DIR%/*}/share/aur-taw/lib"
 else
     echo "Fatal Error: Could not find module directory."
-    echo "Searched in: $SCRIPT_DIR/lib AND $(dirname "$SCRIPT_DIR")/share/aur-taw/lib"
+    echo "Searched in: $SCRIPT_DIR/lib AND ${SCRIPT_DIR%/*}/share/aur-taw/lib"
     exit 1
 fi
 
-source "$LIB_DIR/core.bash"
+source "$LIB_DIR/core.bash" || exit 1
 
 for module in "$LIB_DIR"/*.bash; do
     [[ "$module" == *"/core.bash" ]] && continue
-    source "$module"
+    source "$module" || exit 1
 done
 
 usage() {
-    echo "Usage: $(basename "$0") <command> [arguments]"
-    echo ""
-    echo "Commands:"
-    echo "  search <query>                  Search packages on AUR"
-    echo "  add <name> <url>                Add or update a repository in memory"
-    echo "  remove <name>                   Remove a repository from memory"
-    echo "  uninstall <name>                Uninstall the software from the system"
-    echo "  list                            Show all saved repositories and versions"
-    echo "  view <name>                     Read the PKGBUILD of a saved package"
-    echo "  log <name>                      Show commit history for downgrade purposes"
-    echo "  install [name|--all] [--upgrade] Clone, compile and optionally upgrade"
-    echo "  check                           Check for updates and refresh version data"
-    echo "  import [--all]                  Import already installed AUR packages"
+    cat <<'EOF'
+Usage: aur-taw <command> [arguments]
+
+Commands:
+  search <query>                    Search packages on AUR
+  add <alias> <url> [--package pkg]  Track a repository and fetch its latest version
+  edit <alias> [--name alias] [--url url] [--package pkg]
+                                    Edit an added or imported entry
+  remove <alias>                     Stop tracking an uninstalled package
+  uninstall <alias>                  Uninstall through pacman
+  list                              Show saved packages, versions and origins
+  discover                          Show installed foreign packages and tracking status
+  import [--all | package ...]       Track installed AUR packages without rebuilding
+  deps [alias|package] [--tree] [--all]
+                                    Show installed AUR dependency relations (--all includes official packages)
+  view <alias>                       Read a package's PKGBUILD
+  log <alias>                        Show recent recipe commits
+  install [alias[@commit] ...|--all] [--upgrade]
+                                    Review, build and install packages
+  check [--installed] [--quiet]       Refresh available AUR versions
+  autocheck enable|disable|status|run Schedule or run background version checks
+  --version                         Show version
+EOF
 }
 
 main() {
-    init_core
-
+    case "${1:-}" in
+        --help|-h|help|'') usage; return 0 ;;
+        --version|-V) printf '%s\n' "$VERSION"; return 0 ;;
+    esac
+    init_core || return 1
     case "$1" in
         search) shift; search_aur "$@" ;;
         add) shift; add_repo "$@" ;;
+        edit) shift; edit_repo "$@" ;;
         remove) shift; remove_repo "$@" ;;
         uninstall) shift; uninstall_pkg "$@" ;;
         list) list_repos ;;
+        discover) shift; discover_repos "$@" ;;
+        deps|dependencies) shift; deps_command "$@" ;;
         view) shift; view_pkgbuild "$@" ;;
         log) shift; log_repo "$@" ;;
         install) shift; install_repos "$@" ;;
-        check) check_updates ;;
+        check) shift; check_updates "$@" ;;
         import) shift; import_repos "$@" ;;
-        *) usage ;;
+        autocheck) shift; autocheck_command "$@" ;;
+        *) printf 'Error: Unknown command: %s\n' "$1" >&2; usage >&2; return 1 ;;
     esac
 }
 
