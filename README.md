@@ -184,8 +184,6 @@ git diff --check
 
 The Makefile also defines `make test` and `make test-docker` (using the `aur-dev` image by default). Both require `tests/run.bash` and its regression fixtures. **The `tests/` directory is absent from this source snapshot**, so these targets cannot currently run. Restore the regression suite before using them to validate a release; syntax checks alone do not verify behavior.
 
-See [Publishing an update to AUR](docs/RELEASING.md) for the source release, PKGBUILD update, checksums and `.SRCINFO` workflow.
-
 ## License
 
 [MIT](LICENSE).
